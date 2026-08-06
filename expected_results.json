@@ -1,0 +1,26 @@
+{
+  "primary_samples": {
+    "Galazzo/LCPM": {"total": 252, "cases": 47, "controls": 205},
+    "MetaCardis": {"total": 672, "cases": 303, "controls": 369}
+  },
+  "microbiome_roc_auc_means": {
+    "Galazzo/LCPM": {"QMP": 0.6589828749, "RMP": 0.6528697457, "CLR": 0.6416917488},
+    "MetaCardis": {"QMP": 0.6393642616, "RMP": 0.6472027691, "CLR": 0.6428577817}
+  },
+  "optional_metacardis_roc_auc_means": {
+    "Clinical": 0.8933948679,
+    "QMP + clinical": 0.8840806032,
+    "RMP + clinical": 0.8957587629,
+    "CLR + clinical": 0.8861377195
+  },
+  "differential_calls_q_lt_0_05": {
+    "Galazzo/LCPM": {"QMP": 8, "RMP": 8, "CLR": 1},
+    "MetaCardis_core": {"prevalence": 10, "QMP": 6, "RMP": 0, "CLR": 13},
+    "MetaCardis_core_plus_medications": {"prevalence": 0, "QMP": 0, "RMP": 1, "CLR": 3}
+  },
+  "qmp_rmp_effect_correlations": {
+    "Galazzo/LCPM": 0.9899602776,
+    "MetaCardis_core": 0.9637485371
+  },
+  "shared_exact_species": 51
+}
