@@ -88,9 +88,9 @@ environment checkpoints.
 
 ## Main outputs
 
-The package does not redistribute the large public source workbooks. A compact
-verified reference run is included under `outputs/`; rerunning the pipeline
-recreates or overwrites those tables:
+The repository does not redistribute the large public source workbooks or
+generated result tables. Running the pipeline creates the following local
+directories; `expected_results.json` contains the verified checkpoints:
 
 ```text
 data/
