@@ -11,7 +11,6 @@ from typing import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
-from scipy import stats
 from sklearn.metrics import (
     average_precision_score,
     balanced_accuracy_score,
@@ -71,16 +70,6 @@ def bh_fdr(pvalues: Sequence[float]) -> np.ndarray:
     return q
 
 
-def t_interval(values: Sequence[float], confidence: float = 0.95) -> tuple[float, float]:
-    x = np.asarray(values, dtype=float)
-    x = x[np.isfinite(x)]
-    if x.size < 2:
-        return (math.nan, math.nan)
-    sem = stats.sem(x)
-    half = stats.t.ppf((1 + confidence) / 2, x.size - 1) * sem
-    return (float(x.mean() - half), float(x.mean() + half))
-
-
 def close_rows(matrix: pd.DataFrame) -> pd.DataFrame:
     row_sums = matrix.sum(axis=1)
     if (row_sums <= 0).any():
@@ -102,6 +91,17 @@ def prevalence_filter(
         group_index = labels.index[labels == group]
         detected = reference.loc[group_index].to_numpy() >= detection_limit
         keep |= detected.mean(axis=0) >= threshold
+    return reference.columns[keep].tolist()
+
+
+def pooled_prevalence_filter(
+    reference: pd.DataFrame,
+    threshold: float,
+    detection_limit: float,
+) -> list[str]:
+    """Retain features by pooled prevalence without using outcome labels."""
+    detected = reference.to_numpy(dtype=float) >= detection_limit
+    keep = detected.mean(axis=0) >= threshold
     return reference.columns[keep].tolist()
 
 
@@ -138,6 +138,50 @@ def fixed_clr(rmp: pd.DataFrame) -> pd.DataFrame:
     return apply_clr(rmp, replacements)
 
 
+def multiplicative_replacement(
+    composition: pd.DataFrame,
+    delta: float | None = None,
+) -> pd.DataFrame:
+    """Replace zeros using the standard multiplicative strategy.
+
+    Rows are first closed over the selected features.  With ``p`` features,
+    the default replacement is ``delta = 1 / p**2``.  If a row contains
+    ``m`` zeros, each zero is replaced by ``delta`` and its non-zero entries
+    are multiplied by ``1 - m * delta``.  This preserves positivity and a
+    unit row sum without borrowing information across participants.
+    """
+    closed = close_rows(composition.astype(float))
+    n_features = closed.shape[1]
+    if n_features < 2:
+        raise ValueError("Multiplicative replacement requires at least two features")
+    replacement = 1.0 / (n_features**2) if delta is None else float(delta)
+    if not 0.0 < replacement < 1.0:
+        raise ValueError("delta must be between zero and one")
+
+    zeros = closed <= 0
+    zero_counts = zeros.sum(axis=1).astype(float)
+    remaining = 1.0 - zero_counts * replacement
+    if (remaining <= 0).any():
+        bad = remaining.index[remaining <= 0].tolist()[:5]
+        raise ValueError(f"delta is too large for zero pattern; examples: {bad}")
+
+    replaced = closed.mul(remaining, axis=0)
+    replaced = replaced.mask(zeros, replacement)
+    if not np.allclose(replaced.sum(axis=1), 1.0):
+        raise AssertionError("Multiplicative replacement did not preserve row closure")
+    return replaced
+
+
+def multiplicative_clr(
+    composition: pd.DataFrame,
+    delta: float | None = None,
+) -> pd.DataFrame:
+    """Apply CLR after multiplicative zero replacement."""
+    replaced = multiplicative_replacement(composition, delta=delta)
+    logged = np.log(replaced)
+    return logged.sub(logged.mean(axis=1), axis=0)
+
+
 def classification_metrics(y_true: np.ndarray, probability: np.ndarray) -> dict[str, float]:
     prediction = (probability >= 0.5).astype(int)
     tn, fp, fn, tp = confusion_matrix(y_true, prediction, labels=[0, 1]).ravel()
@@ -171,16 +215,15 @@ def summarize_repeat_metrics(repeats: pd.DataFrame, group_columns: Sequence[str]
         row["cv_folds_per_repeat"] = int(group["folds"].iloc[0])
         for metric in metric_columns:
             values = group[metric].to_numpy(dtype=float)
-            low, high = t_interval(values)
             row[f"{metric}_mean"] = float(np.mean(values))
             row[f"{metric}_sd"] = float(np.std(values, ddof=1))
-            row[f"{metric}_ci95_low"] = low
-            row[f"{metric}_ci95_high"] = high
+            row[f"{metric}_min"] = float(np.min(values))
+            row[f"{metric}_max"] = float(np.max(values))
         rows.append(row)
     return pd.DataFrame(rows)
 
 
-def paired_repeat_comparisons(
+def paired_repeat_descriptions(
     repeats: pd.DataFrame,
     cohort: str,
     models: Sequence[str],
@@ -198,30 +241,27 @@ def paired_repeat_comparisons(
         for i, model_a in enumerate(models):
             for model_b in models[i + 1 :]:
                 difference = (pivot[model_a] - pivot[model_b]).dropna().to_numpy()
-                low, high = t_interval(difference)
-                if np.allclose(difference, 0):
-                    pvalue = 1.0
-                else:
-                    pvalue = float(stats.wilcoxon(difference, alternative="two-sided").pvalue)
                 rows.append(
                     {
                         "cohort": cohort,
                         "metric": metric,
                         "model_a": model_a,
                         "model_b": model_b,
+                        "n_repeats": int(len(difference)),
                         "mean_a_minus_b": float(difference.mean()),
                         "sd_difference": float(difference.std(ddof=1)),
-                        "ci95_low": low,
-                        "ci95_high": high,
-                        "paired_wilcoxon_p": pvalue,
+                        "minimum_a_minus_b": float(difference.min()),
+                        "maximum_a_minus_b": float(difference.max()),
+                        "range_definition": (
+                            "minimum to maximum across repeated resampling runs; "
+                            "descriptive only"
+                        ),
                         "positive_difference_favors": (
                             model_b if metric == "brier_score" else model_a
                         ),
                     }
                 )
-    result = pd.DataFrame(rows)
-    result["paired_wilcoxon_q_bh"] = bh_fdr(result["paired_wilcoxon_p"])
-    return result
+    return pd.DataFrame(rows)
 
 
 def yes_no_to_binary(series: pd.Series) -> pd.Series:

@@ -1,25 +1,31 @@
 # Quantitative versus compositional microbiome pipeline
 
-This repository is the complete, separated-code version of the Galazzo/LCPM +
-MetaCardis project. It replaces the old relative-abundance-only dataset with two
-published quantitative resources, derives paired RMP and CLR views from the
-same participants, and tests how representation changes prediction and
-taxon-level inference.
+This repository contains the complete analysis for a methodological comparison
+of quantitative microbiome profiling (QMP), QMP-derived row-closed abundance,
+and centered log-ratio (CLR) abundance in the public LCPM and MetaCardis
+cohorts.
 
-The raw FASTQ files are **not required** for this project. Reprocessing reads
-would introduce a much larger bioinformatics project and would not, by itself,
-recover absolute abundance. The public quantitative supplementary matrices are
-the appropriate starting data.
+The row-closed matrix is calculated deterministically from each published QMP
+matrix. It is **not** an independently measured, native sequencing relative-
+abundance matrix. QMP and row-closed values therefore share upstream
+measurement error. The project evaluates the consequences of mathematical
+representation, not two independent laboratory assays.
 
-## What the two datasets contribute
+Raw FASTQ files are not required. The analysis starts from the quantitative
+supplementary matrices released with the two studies and verifies them by
+SHA-256 checksum.
 
-| Dataset | Primary comparison | Profiles | Quantitative value | Role |
+## Cohorts and scope
+
+| Dataset | Primary comparison | Profiles | Published quantitative value | Role |
 |---|---:|---:|---|---|
-| Galazzo/LCPM | CRC vs CTL | 47 vs 205 | Species cells per gram | True quantitative benchmark |
-| MetaCardis | IHD372 vs MMC372 | 303 vs 369 | Microbial-load-corrected MGS abundance index | Independent methodological replication |
+| LCPM | CRC vs CTL | 47 vs 205 | Species cells per gram | Quantitative CRC benchmark |
+| MetaCardis | IHD372 vs MMC372 | 303 vs 369 | Load-corrected MGS abundance index | Cross-disease methodological replication |
 
-MetaCardis QMP is **not cells per gram**. Therefore, diseases, raw QMP values,
-and disease-effect estimates are never pooled across cohorts.
+MetaCardis QMP is not cells per gram. Diseases, raw abundance values, and
+disease-effect estimates are never pooled across cohorts. The cross-cohort
+analysis is methodological replication, not same-disease biological
+validation.
 
 ## Quick start
 
@@ -33,105 +39,120 @@ python -m pip install -r requirements.txt
 python run_all.py
 ```
 
-The first run downloads and SHA-256-verifies both public supplementary
+`requirements-lock.txt` records the exact Python 3.12.13 reference
+environment used for the numerical checkpoints. Use it instead of
+`requirements.txt` when exact environment reconstruction is required.
+
+The first run downloads and checksum-verifies both public supplementary
 workbooks. To use workbooks already placed in `data/raw/`, run:
 
 ```bash
 python run_all.py --skip-download
 ```
 
-To reproduce only the primary QMP/RMP/CLR comparison and skip the optional
-MetaCardis clinical prediction baselines:
+To skip the optional MetaCardis clinical and combined prediction models:
 
 ```bash
 python run_all.py --microbiome-only
 ```
 
-## Code parts
+Verify a completed run and execute the unit tests:
 
-Each analytical part is an independent module and also runs from
-`run_all.py`.
+```bash
+python verify_results.py
+python -m pytest -q
+```
+
+## Code parts
 
 | Part | Module | Content |
 |---:|---|---|
-| 01 | `part01_download_data.py` | Download, cache, and checksum both public workbooks |
-| 02 | `part02_prepare_lcpm.py` | Build LCPM metadata, QMP cells/g, derived RMP, and taxonomy |
-| 03 | `part03_prepare_metacardis.py` | Stream the large workbook, audit overlapping labels, and build QMP/RMP |
-| 04 | `part04_lcpm_associations.py` | CRC-vs-CTL QMP/RMP/CLR tests plus prevalence sensitivity |
-| 05 | `part05_metacardis_associations.py` | Prevalence, non-zero QMP/RMP, and CLR regression models |
+| 01 | `part01_download_data.py` | Download, cache, and checksum both workbooks |
+| 02 | `part02_prepare_lcpm.py` | Build LCPM metadata, QMP cells/g, row-closed abundance, and taxonomy |
+| 03 | `part03_prepare_metacardis.py` | Audit overlapping labels and build MetaCardis QMP/row-closed data |
+| 04 | `part04_lcpm_associations.py` | Outcome-blind CRC–CTL associations and source-aligned sensitivity |
+| 05 | `part05_metacardis_associations.py` | Prevalence, positive-abundance, and CLR association models |
 | 06 | `part06_train_models.py` | Leakage-controlled repeated cross-validation |
-| 07 | `part07_synthesize.py` | Within-cohort comparison and guarded exact-species synthesis |
+| 07 | `part07_synthesize.py` | Guarded within- and cross-cohort synthesis |
 
-Examples for running one part:
+Each part is independently runnable, for example:
 
 ```bash
-python -m compositionality.part02_prepare_lcpm
+python -m compositionality.part04_lcpm_associations
 python -m compositionality.part05_metacardis_associations
 python -m compositionality.part06_train_models --microbiome-only
 python -m compositionality.part07_synthesize
 ```
 
-## Expected primary checkpoints
+## Revised reference checkpoints
 
-| Cohort | QMP AUC | RMP AUC | CLR AUC | Differential calls |
-|---|---:|---:|---:|---|
-| Galazzo/LCPM | 0.658983 | 0.652870 | 0.641692 | 8 / 8 / 1 |
-| MetaCardis, core adjusted | 0.639364 | 0.647203 | 0.642858 | 6 / 0 / 13 |
+### Prediction
 
-For MetaCardis, core-adjusted prevalence has 10 calls. Adding the four broad
-medication categories gives 0 prevalence, 0 QMP, 1 RMP, and 3 CLR calls.
-There are 51 one-to-one exact species shared across the final tested sets.
+| Cohort | QMP | Row-closed | CLR, minimum-positive | CLR, multiplicative |
+|---|---:|---:|---:|---:|
+| LCPM | 0.658983 | 0.652870 | 0.641692 | 0.662605 |
+| MetaCardis | 0.639364 | 0.647203 | 0.642858 | 0.652397 |
 
-Small last-decimal differences can occur across supported versions of
-scikit-learn or statsmodels. `expected_results.json` records the reference
-environment checkpoints.
+These are means across ten repeated out-of-fold prediction vectors. Repeats
+reuse participants and are correlated; the pipeline reports mean, sample SD,
+and the literal repeat minimum–maximum only. It does not assign confidence
+intervals or inferential P values to repeated-CV differences, and the analysis
+is not an equivalence or non-inferiority test.
+
+Using the same HistGradientBoosting estimator and folds in MetaCardis, the
+clinical-only AUC is 0.893944. The corresponding combined AUCs are 0.884081
+(QMP), 0.895759 (row-closed), and 0.886138 (minimum-positive CLR).
+
+### Feature-level inference
+
+- LCPM primary pooled outcome-blind filter: 93 taxa and 1/1/1/1 FDR calls for
+  QMP, row-closed, minimum-positive CLR, and multiplicative CLR.
+- LCPM source-aligned group-union sensitivity: 112 taxa and 8/8/1/1 calls.
+  This analysis uses diagnosis groups to define the tested set and is not the
+  primary inferential result.
+- MetaCardis pooled outcome-blind filter: 404 taxa. Core-adjusted calls are 10
+  prevalence, 6 QMP, 0 row-closed, 13 minimum-positive CLR, and 14
+  multiplicative CLR.
+- Adding four medication categories as an alternative adjustment set yields
+  0, 0, 1, 3, and 0 calls, respectively. This is a confounding sensitivity
+  analysis, not a causal estimate of medication effects.
+
+The revised exact-species synthesis contains 49 one-to-one matches.
 
 ## Main outputs
 
-The repository does not redistribute the large public source workbooks or
-generated result tables. Running the pipeline creates the following local
-directories; `expected_results.json` contains the verified checkpoints:
+Running the pipeline creates `data/raw/`, `data/processed/`, and `outputs/`.
+Generated data and result tables are intentionally not committed.
 
-```text
-data/
-  raw/
-  processed/lcpm/
-  processed/metacardis/
-outputs/
-  associations/
-  prediction/
-  synthesis/
-```
+Important result files include:
 
-Important result files are:
-
+- `outputs/associations/lcpm_crc_vs_ctl_associations.csv`
+- `outputs/associations/metacardis_ihd_vs_mmc_hurdle_qmp_row_closed_clr.csv`
 - `outputs/prediction/cv_summary.csv`
-- `outputs/prediction/cv_paired_comparisons.csv`
-- `outputs/associations/lcpm_crc_vs_ctl_qmp_rmp_clr.csv`
-- `outputs/associations/metacardis_ihd_vs_mmc_hurdle_qmp_rmp_clr.csv`
+- `outputs/prediction/cv_paired_descriptive_differences.csv`
+- `outputs/synthesis/lcpm_outcome_blind_filter_sensitivity.csv`
+- `outputs/synthesis/clr_zero_replacement_cv_summary.csv`
 - `outputs/synthesis/headline_results.json`
 - `outputs/synthesis/shared_exact_species.csv`
 
 ## Reproducibility and interpretation rules
 
-- Repeated stratified CV is 5 folds × 10 repeats with seed 531.
-- The same split and fold-specific feature set is used for QMP, RMP, and CLR.
-- Prevalence filtering and CLR zero replacement are fitted on training data
-  only.
-- No hyperparameter tuning, calibration, external validation, or threshold
-  selection is performed.
-- Repeat-level confidence intervals and paired Wilcoxon tests are exploratory,
-  because repeated-CV estimates are correlated.
-- Quantitative abundance does not remove confounding. The medication analysis
-  is a sensitivity check, not proof that medication is a pure confounder.
-- Shared-species results describe representation sensitivity. They do not imply
-  that CRC and IHD have the same microbiome biology.
+- Repeated stratified CV uses 5 folds × 10 repeats with seed 531.
+- All abundance representations use the same split and fold-specific taxa.
+- Prediction-time prevalence filtering, minimum-positive CLR replacement, and
+  BMI imputation are fitted inside each training fold.
+- Multiplicative CLR uses `delta = 1 / p²` after closing the selected taxa.
+- No hyperparameter tuning, calibration, decision-curve analysis, external
+  validation, or threshold selection is performed.
+- LCPM taxon tests are unadjusted because the required participant-level BMI,
+  stool-moisture, and calprotectin covariates are not public.
+- Quantitative measurement does not remove clinical confounding.
 
-See `PROJECT_OUTLINE.md` for the complete data and training specification.
+See `PROJECT_OUTLINE.md` for the full training and statistical specification.
 
 ## Public sources
 
-- Galazzo/LCPM study: <https://www.nature.com/articles/s41591-024-02963-2>
+- LCPM study: <https://www.nature.com/articles/s41591-024-02963-2>
 - MetaCardis study: <https://www.nature.com/articles/s41591-022-01688-4>
 
 The exact supplementary URLs and SHA-256 values are fixed in

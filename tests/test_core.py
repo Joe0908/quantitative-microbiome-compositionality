@@ -1,7 +1,14 @@
 import numpy as np
 import pandas as pd
 
-from compositionality.common import bh_fdr, close_rows, clr_transform
+from compositionality.common import (
+    bh_fdr,
+    close_rows,
+    clr_transform,
+    multiplicative_clr,
+    multiplicative_replacement,
+    pooled_prevalence_filter,
+)
 
 
 def test_close_rows_sums_to_one_and_preserves_zeros():
@@ -32,3 +39,25 @@ def test_bh_fdr_known_example_and_nan_handling():
     observed = bh_fdr([0.01, 0.04, 0.03, np.nan])
     assert np.allclose(observed[:3], [0.03, 0.04, 0.04])
     assert np.isnan(observed[3])
+
+
+def test_pooled_prevalence_filter_does_not_require_outcome_labels():
+    source = pd.DataFrame(
+        {
+            "common": [1.0, 1.0, 0.0, 0.0],
+            "rare": [1.0, 0.0, 0.0, 0.0],
+        }
+    )
+    assert pooled_prevalence_filter(source, 0.50, 1.0) == ["common"]
+
+
+def test_multiplicative_replacement_is_closed_and_clr_is_centered():
+    source = pd.DataFrame(
+        [[0.25, 0.0, 0.75], [0.0, 0.5, 0.5]],
+        columns=["a", "b", "c"],
+    )
+    replaced = multiplicative_replacement(source)
+    transformed = multiplicative_clr(source)
+    assert (replaced > 0).all().all()
+    assert np.allclose(replaced.sum(axis=1), 1.0)
+    assert np.allclose(transformed.mean(axis=1), 0.0)

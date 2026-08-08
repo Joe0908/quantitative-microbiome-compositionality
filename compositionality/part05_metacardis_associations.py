@@ -1,4 +1,4 @@
-"""Part 05 — MetaCardis prevalence, non-zero abundance, and CLR models."""
+"""Part 05 — MetaCardis prevalence, abundance, and CLR association models."""
 
 from __future__ import annotations
 
@@ -16,7 +16,8 @@ from .common import (
     close_rows,
     ensure_dir,
     fixed_clr,
-    prevalence_filter,
+    multiplicative_clr,
+    pooled_prevalence_filter,
     read_matrix,
     require,
     write_json,
@@ -148,7 +149,7 @@ def run(
     qmp = read_matrix(processed / "qmp_index.csv")
     rmp = close_rows(qmp)
 
-    primary_mask = metadata["qmp_rmp_profile_available"].astype(bool) & (
+    primary_mask = metadata["quantitative_profile_available"].astype(bool) & (
         metadata["ihd_member"].astype(bool) | metadata["mmc_member"].astype(bool)
     )
     primary_metadata = metadata.loc[primary_mask].copy()
@@ -159,16 +160,21 @@ def run(
     candidate_columns = taxonomy.loc[taxonomy["clean_candidate"], "matrix_column"].tolist()
     qmp = qmp.loc[primary_metadata.index, candidate_columns]
     rmp = rmp.loc[primary_metadata.index, candidate_columns]
-    features = prevalence_filter(
+    # Pooled prevalence is independent of IHD/MMC labels and therefore does
+    # not select hypotheses using the outcome later tested by the models.
+    features = pooled_prevalence_filter(
         qmp,
-        disease,
         PRIMARY_PREVALENCE,
         np.nextafter(0.0, 1.0),
     )
-    require(len(features) == 410, f"Expected 410 MetaCardis association features, observed {len(features)}")
+    require(
+        len(features) == 404,
+        f"Expected 404 pooled outcome-blind MetaCardis features, observed {len(features)}",
+    )
     qmp = qmp[features]
     rmp = rmp[features]
-    clr = fixed_clr(rmp)
+    clr_minimum = fixed_clr(rmp)
+    clr_multiplicative = multiplicative_clr(rmp)
 
     feature_info = taxonomy.set_index("matrix_column").loc[features]
     covariates = _base_covariates(primary_metadata, disease)
@@ -199,8 +205,9 @@ def run(
             component_inputs = [
                 ("prevalence", presence.astype(float), full_design, _fit_logistic, "log odds IHD vs MMC"),
                 ("qmp_nonzero", np.log(qmp.loc[positive_index, feature]), positive_design, _fit_ols, "log non-zero QMP IHD minus MMC"),
-                ("rmp_nonzero", np.log(rmp.loc[positive_index, feature]), positive_design, _fit_ols, "log non-zero RMP IHD minus MMC"),
-                ("clr", clr[feature], full_design, _fit_ols, "CLR IHD minus MMC"),
+                ("row_closed_nonzero", np.log(rmp.loc[positive_index, feature]), positive_design, _fit_ols, "log non-zero QMP-derived row-closed abundance IHD minus MMC"),
+                ("clr_minimum_positive", clr_minimum[feature], full_design, _fit_ols, "CLR IHD minus MMC; minimum-positive zero replacement"),
+                ("clr_multiplicative", clr_multiplicative[feature], full_design, _fit_ols, "CLR IHD minus MMC; multiplicative zero replacement"),
             ]
             for component, response, design, fit_function, definition in component_inputs:
                 effect, standard_error, p_value, status = fit_function(response, design)
@@ -233,7 +240,7 @@ def run(
         results.loc[index, "q_value_bh"] = bh_fdr(results.loc[index, "p_value"])
     results["significant_q_lt_0_05"] = results["q_value_bh"] < 0.05
 
-    result_path = results_dir / "metacardis_ihd_vs_mmc_hurdle_qmp_rmp_clr.csv"
+    result_path = results_dir / "metacardis_ihd_vs_mmc_hurdle_qmp_row_closed_clr.csv"
     summary_path = results_dir / "metacardis_association_summary.json"
     results.to_csv(result_path, index=False)
     counts = (
@@ -244,20 +251,29 @@ def run(
     )
     core_results = results.loc[results["adjustment"] == "core"]
     qmp_effect = core_results.loc[core_results["component"] == "qmp_nonzero"].set_index("matrix_column")["effect"]
-    rmp_effect = core_results.loc[core_results["component"] == "rmp_nonzero"].set_index("matrix_column")["effect"]
-    effect_correlation = float(qmp_effect.corr(rmp_effect))
-    direction_agreement = float((np.sign(qmp_effect) == np.sign(rmp_effect)).mean())
+    row_closed_effect = core_results.loc[
+        core_results["component"] == "row_closed_nonzero"
+    ].set_index("matrix_column")["effect"]
+    effect_correlation = float(qmp_effect.corr(row_closed_effect))
+    direction_agreement = float(
+        (np.sign(qmp_effect) == np.sign(row_closed_effect)).mean()
+    )
     write_json(
         {
             "contrast": "IHD372 vs MMC372",
             "samples": 672,
             "ihd": 303,
             "mmc": 369,
-            "tested_features": 410,
+            "filter": "pooled outcome-blind prevalence >=5%",
+            "tested_features": 404,
             "bmi_median_imputation": float(pd.to_numeric(primary_metadata["bmi"], errors="coerce").median()),
             "significant_calls": counts.to_dict(orient="index"),
-            "core_qmp_rmp_effect_correlation": effect_correlation,
-            "core_qmp_rmp_direction_agreement": direction_agreement,
+            "core_qmp_row_closed_effect_correlation": effect_correlation,
+            "core_qmp_row_closed_direction_agreement": direction_agreement,
+            "medication_adjustment_interpretation": (
+                "sensitivity analysis under an alternative covariate set; "
+                "not a causal estimate of medication effects"
+            ),
         },
         summary_path,
     )

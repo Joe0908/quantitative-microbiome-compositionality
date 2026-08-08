@@ -1,26 +1,60 @@
 {
   "primary_samples": {
-    "Galazzo/LCPM": {"total": 252, "cases": 47, "controls": 205},
+    "LCPM": {"total": 252, "cases": 47, "controls": 205},
     "MetaCardis": {"total": 672, "cases": 303, "controls": 369}
   },
   "microbiome_roc_auc_means": {
-    "Galazzo/LCPM": {"QMP": 0.6589828749, "RMP": 0.6528697457, "CLR": 0.6416917488},
-    "MetaCardis": {"QMP": 0.6393642616, "RMP": 0.6472027691, "CLR": 0.6428577817}
+    "LCPM": {"QMP": 0.6589828749, "Row-closed": 0.6528697457, "CLR": 0.6416917488},
+    "MetaCardis": {"QMP": 0.6393642616, "Row-closed": 0.6472027691, "CLR": 0.6428577817}
+  },
+  "clr_multiplicative_roc_auc_means": {
+    "LCPM": 0.6626050856,
+    "MetaCardis": 0.6523965405
   },
   "optional_metacardis_roc_auc_means": {
-    "Clinical": 0.8933948679,
+    "Clinical (logistic)": 0.8934056007,
+    "Clinical (HGB)": 0.8939435814,
     "QMP + clinical": 0.8840806032,
-    "RMP + clinical": 0.8957587629,
+    "Row-closed + clinical": 0.8957587629,
     "CLR + clinical": 0.8861377195
   },
   "differential_calls_q_lt_0_05": {
-    "Galazzo/LCPM": {"QMP": 8, "RMP": 8, "CLR": 1},
-    "MetaCardis_core": {"prevalence": 10, "QMP": 6, "RMP": 0, "CLR": 13},
-    "MetaCardis_core_plus_medications": {"prevalence": 0, "QMP": 0, "RMP": 1, "CLR": 3}
+    "LCPM_pooled_outcome_blind": {
+      "qmp": 1,
+      "row_closed": 1,
+      "clr_minimum_positive": 1,
+      "clr_multiplicative": 1
+    },
+    "LCPM_source_aligned_group_union": {
+      "qmp": 8,
+      "row_closed": 8,
+      "clr_minimum_positive": 1,
+      "clr_multiplicative": 1
+    },
+    "MetaCardis_core": {
+      "prevalence": 10,
+      "qmp_nonzero": 6,
+      "row_closed_nonzero": 0,
+      "clr_minimum_positive": 13,
+      "clr_multiplicative": 14
+    },
+    "MetaCardis_core_plus_medications": {
+      "prevalence": 0,
+      "qmp_nonzero": 0,
+      "row_closed_nonzero": 1,
+      "clr_minimum_positive": 3,
+      "clr_multiplicative": 0
+    }
   },
-  "qmp_rmp_effect_correlations": {
-    "Galazzo/LCPM": 0.9899602776,
-    "MetaCardis_core": 0.9637485371
+  "tested_features": {
+    "LCPM_pooled_outcome_blind": 93,
+    "LCPM_source_aligned_group_union": 112,
+    "MetaCardis_pooled_outcome_blind": 404
   },
-  "shared_exact_species": 51
+  "LCPM_pooled_primary_significant_species": ["Alistipes.onderdonkii"],
+  "qmp_row_closed_effect_correlations": {
+    "LCPM": 0.9897733197,
+    "MetaCardis_core": 0.9628527130
+  },
+  "shared_exact_species": 49
 }

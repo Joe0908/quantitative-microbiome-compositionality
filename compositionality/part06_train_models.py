@@ -30,7 +30,8 @@ from .common import (
     close_rows,
     clr_transform,
     ensure_dir,
-    paired_repeat_comparisons,
+    multiplicative_clr,
+    paired_repeat_descriptions,
     prevalence_filter,
     read_matrix,
     require,
@@ -48,7 +49,8 @@ from .config import (
 )
 
 
-MICROBIOME_MODELS = ["QMP", "RMP", "CLR"]
+MICROBIOME_MODELS = ["QMP", "Row-closed", "CLR"]
+CLR_SENSITIVITY_MODEL = "CLR (multiplicative)"
 CLINICAL_COLUMNS = [
     "age",
     "bmi",
@@ -152,14 +154,20 @@ def _run_cohort(
     ids = qmp.index[qmp.index.isin(ids)]
     qmp = qmp.loc[ids]
     labels = labels.loc[ids].astype(int)
-    rmp = close_rows(qmp)
-    filter_reference = rmp if cohort == "Galazzo/LCPM" else qmp
+    row_closed = close_rows(qmp)
+    filter_reference = row_closed if cohort == "LCPM" else qmp
     clinical = _clinical_design(metadata, ids) if include_clinical else None
 
-    model_names = list(MICROBIOME_MODELS)
+    model_names = [*MICROBIOME_MODELS, CLR_SENSITIVITY_MODEL]
     if include_clinical:
         model_names.extend(
-            ["Clinical", "QMP + clinical", "RMP + clinical", "CLR + clinical"]
+            [
+                "Clinical (logistic)",
+                "Clinical (HGB)",
+                "QMP + clinical",
+                "Row-closed + clinical",
+                "CLR + clinical",
+            ]
         )
     probabilities = {
         model: np.full((N_REPEATS, len(ids)), np.nan, dtype=float)
@@ -193,12 +201,26 @@ def _run_cohort(
         selected.update(features)
 
         clr_train, clr_test, replacements = clr_transform(
-            rmp.loc[train_ids, features], rmp.loc[test_ids, features]
+            row_closed.loc[train_ids, features],
+            row_closed.loc[test_ids, features],
+        )
+        multiplicative_clr_train = multiplicative_clr(
+            row_closed.loc[train_ids, features]
+        )
+        multiplicative_clr_test = multiplicative_clr(
+            row_closed.loc[test_ids, features]
         )
         microbiome = {
             "QMP": (qmp.loc[train_ids, features], qmp.loc[test_ids, features]),
-            "RMP": (rmp.loc[train_ids, features], rmp.loc[test_ids, features]),
+            "Row-closed": (
+                row_closed.loc[train_ids, features],
+                row_closed.loc[test_ids, features],
+            ),
             "CLR": (clr_train, clr_test),
+            CLR_SENSITIVITY_MODEL: (
+                multiplicative_clr_train,
+                multiplicative_clr_test,
+            ),
         }
 
         fold_predictions: dict[str, np.ndarray] = {}
@@ -216,10 +238,14 @@ def _run_cohort(
             clinical_test["bmi"] = clinical_test["bmi"].fillna(
                 clinical_bmi_median
             )
-            fold_predictions["Clinical"] = _clinical_probability(
+            fold_predictions["Clinical (logistic)"] = _clinical_probability(
                 clinical_train, train_y, clinical_test
             )
-            for model_name, (train_x, test_x) in microbiome.items():
+            fold_predictions["Clinical (HGB)"] = _hgb_probability(
+                clinical_train, train_y, clinical_test
+            )
+            for model_name in MICROBIOME_MODELS:
+                train_x, test_x = microbiome[model_name]
                 combined_train = train_x.join(
                     clinical_train.add_prefix("clinical__")
                 )
@@ -248,6 +274,7 @@ def _run_cohort(
                 "selected_features": len(features),
                 "minimum_clr_replacement": float(replacements.min()),
                 "maximum_clr_replacement": float(replacements.max()),
+                "multiplicative_clr_delta": float(1.0 / (len(features) ** 2)),
                 "clinical_training_bmi_median": clinical_bmi_median,
             }
         )
@@ -309,7 +336,7 @@ def run(
         lcpm_taxonomy["clean_candidate"], "feature_id"
     ].tolist()
     lcpm_results = _run_cohort(
-        "Galazzo/LCPM",
+        "LCPM",
         lcpm_metadata,
         lcpm_qmp,
         lcpm_candidates,
@@ -325,7 +352,7 @@ def run(
     )
     meta_taxonomy = pd.read_csv(meta_dir / "taxonomy.csv.gz")
     meta_qmp = read_matrix(meta_dir / "qmp_index.csv")
-    meta_mask = meta_metadata["qmp_rmp_profile_available"].astype(bool) & (
+    meta_mask = meta_metadata["quantitative_profile_available"].astype(bool) & (
         meta_metadata["ihd_member"].astype(bool)
         | meta_metadata["mmc_member"].astype(bool)
     )
@@ -354,7 +381,7 @@ def run(
     comparison_frames = []
     for cohort, cohort_models in repeats.groupby("cohort", sort=False)["model"]:
         comparison_frames.append(
-            paired_repeat_comparisons(
+            paired_repeat_descriptions(
                 repeats,
                 cohort,
                 cohort_models.drop_duplicates().tolist(),
@@ -365,7 +392,7 @@ def run(
     paths = {
         "repeats": result_dir / "cv_repeat_metrics.csv",
         "summary": result_dir / "cv_summary.csv",
-        "comparisons": result_dir / "cv_paired_comparisons.csv",
+        "comparisons": result_dir / "cv_paired_descriptive_differences.csv",
         "fold_metrics": result_dir / "cv_fold_metrics.csv",
         "fold_audit": result_dir / "cv_fold_audit.csv",
         "selection": result_dir / "cv_feature_selection_frequency.csv",
