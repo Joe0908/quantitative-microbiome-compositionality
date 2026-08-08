@@ -1,4 +1,4 @@
-"""Part 03 — audit MetaCardis labels and construct paired QMP/RMP matrices."""
+"""Part 03 — audit MetaCardis labels and construct QMP/row-closed matrices."""
 
 from __future__ import annotations
 
@@ -109,11 +109,12 @@ def run(data_dir: Path = DEFAULT_DATA_DIR) -> dict[str, Path]:
     qmp = qmp_all.loc[complete]
     rmp = close_rows(qmp)
 
-    metadata["qmp_rmp_profile_available"] = metadata.index.isin(qmp.index)
+    metadata["quantitative_profile_available"] = metadata.index.isin(qmp.index)
     load = pd.to_numeric(metadata["taxonomy__Microbial load"], errors="coerce")
     metadata["microbial_load_available"] = load.notna() & (load > 0)
-    metadata["core_qmp_rmp_load_ready"] = (
-        metadata["qmp_rmp_profile_available"] & metadata["microbial_load_available"]
+    metadata["quantitative_load_ready"] = (
+        metadata["quantitative_profile_available"]
+        & metadata["microbial_load_available"]
     )
 
     taxonomy_rows = st5.loc[
@@ -171,9 +172,12 @@ def run(data_dir: Path = DEFAULT_DATA_DIR) -> dict[str, Path]:
 
     require(qmp.shape == (994, 729), f"Unexpected MetaCardis QMP shape: {qmp.shape}")
     require(int(taxonomy["clean_candidate"].sum()) == 416, "Expected 416 clean bacterial MetaCardis candidates")
-    require(np.allclose(rmp.sum(axis=1), 1.0), "MetaCardis RMP rows do not sum to one")
+    require(
+        np.allclose(rmp.sum(axis=1), 1.0),
+        "MetaCardis QMP-derived row-closed rows do not sum to one",
+    )
     primary_ids = metadata.index[
-        metadata["qmp_rmp_profile_available"]
+        metadata["quantitative_profile_available"]
         & (metadata["ihd_member"] | metadata["mmc_member"])
     ]
     primary = metadata.loc[primary_ids]
@@ -185,23 +189,25 @@ def run(data_dir: Path = DEFAULT_DATA_DIR) -> dict[str, Path]:
         "metadata": processed_dir / "metadata.csv.gz",
         "taxonomy": processed_dir / "taxonomy.csv.gz",
         "qmp": processed_dir / "qmp_index.csv",
-        "rmp": processed_dir / "rmp_row_closed.csv",
+        "row_closed": processed_dir / "row_closed.csv",
         "qc": processed_dir / "qc.json",
     }
     metadata.reset_index(names="participant_id").to_csv(paths["metadata"], index=False)
     taxonomy.to_csv(paths["taxonomy"], index=False)
     qmp.to_csv(paths["qmp"], index=True)
-    rmp.to_csv(paths["rmp"], index=True)
+    rmp.to_csv(paths["row_closed"], index=True)
     write_json(
         {
             "published_label_rows": 1882,
             "unique_participant_ids": 1087,
-            "complete_qmp_rmp_profiles": int(len(qmp)),
+            "complete_quantitative_profiles": int(len(qmp)),
             "features": int(qmp.shape[1]),
             "clean_candidates": int(taxonomy["clean_candidate"].sum()),
             "primary_ihd_profiles": int(primary["ihd_member"].sum()),
             "primary_mmc_profiles": int(primary["mmc_member"].sum()),
-            "maximum_rmp_row_sum_error": float(np.abs(rmp.sum(axis=1) - 1).max()),
+            "maximum_row_closed_sum_error": float(
+                np.abs(rmp.sum(axis=1) - 1).max()
+            ),
         },
         paths["qc"],
     )

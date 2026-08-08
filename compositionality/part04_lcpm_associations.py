@@ -1,4 +1,4 @@
-"""Part 04 — LCPM QMP/RMP/CLR differential-association analyses."""
+"""Part 04 — LCPM QMP, row-closed, and CLR association analyses."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ from .common import (
     close_rows,
     ensure_dir,
     fixed_clr,
+    multiplicative_clr,
+    pooled_prevalence_filter,
     prevalence_filter,
     read_matrix,
     require,
@@ -28,9 +30,13 @@ from .config import (
 
 
 def _pairwise_results(
+    component: str,
     representation: str,
     matrix: pd.DataFrame,
     labels: pd.Series,
+    filter_specification: str,
+    primary_analysis: bool,
+    clr_zero_replacement: str = "not_applicable",
 ) -> pd.DataFrame:
     ctl_index = labels.index[labels == "CTL"]
     crc_index = labels.index[labels == "CRC"]
@@ -42,9 +48,13 @@ def _pairwise_results(
         effect = 1.0 - (2.0 * float(test.statistic) / (len(ctl) * len(crc)))
         rows.append(
             {
-                "cohort": "Galazzo/LCPM",
+                "cohort": "LCPM",
                 "contrast": "CRC vs CTL",
+                "filter_specification": filter_specification,
+                "primary_analysis": primary_analysis,
+                "component": component,
                 "representation": representation,
+                "clr_zero_replacement": clr_zero_replacement,
                 "feature": feature,
                 "n_ctl": len(ctl),
                 "n_crc": len(crc),
@@ -78,7 +88,7 @@ def _global_results(
         clr = fixed_clr(rmp[features])
         specifications = [
             ("QMP", "Kruskal-Wallis", qmp[features]),
-            ("RMP", "Kruskal-Wallis", rmp[features]),
+            ("Row-closed", "Kruskal-Wallis", rmp[features]),
             ("CLR", "one-way ANOVA", clr),
             ("CLR", "Kruskal-Wallis", clr),
         ]
@@ -95,8 +105,9 @@ def _global_results(
                     test = stats.kruskal(*arrays)
                 local_rows.append(
                     {
-                        "cohort": "Galazzo/LCPM",
+                        "cohort": "LCPM",
                         "contrast": "CTL vs ADE vs CRC",
+                        "filter_specification": "source_aligned_group_union",
                         "prevalence_threshold": threshold,
                         "representation": representation,
                         "test": test_name,
@@ -131,52 +142,109 @@ def run(
     labels = metadata.loc[primary_ids, "diagnosis"]
     qmp_primary = qmp.loc[primary_ids, candidates]
     rmp_primary = rmp.loc[primary_ids, candidates]
-    # The published analysis set was defined across all three diagnosis groups;
-    # the CRC-vs-CTL contrast then tests that fixed set.
-    features = prevalence_filter(
+    # The source-aligned analysis used the union of taxa detected in at least
+    # 5% of any diagnosis group.  Because that rule uses outcome labels, it is
+    # retained only as a sensitivity analysis.
+    source_features = prevalence_filter(
         rmp[candidates],
         metadata["diagnosis"],
         PRIMARY_PREVALENCE,
         LCPM_DETECTION_LIMIT,
     )
-    require(len(features) == 112, f"Expected 112 LCPM CRC/CTL features, observed {len(features)}")
-    # CLR was defined on the fixed three-group analysis set, then subset for the
-    # pairwise CRC-vs-CTL test.
-    clr_primary = fixed_clr(rmp[features]).loc[primary_ids]
+    require(
+        len(source_features) == 112,
+        f"Expected 112 source-aligned LCPM features, observed {len(source_features)}",
+    )
+
+    # Primary inference uses a pooled prevalence calculation over the 252
+    # participants in the contrast.  No diagnosis labels enter this filter.
+    pooled_features = pooled_prevalence_filter(
+        rmp_primary[candidates],
+        PRIMARY_PREVALENCE,
+        LCPM_DETECTION_LIMIT,
+    )
+    require(
+        len(pooled_features) == 93,
+        f"Expected 93 pooled outcome-blind LCPM features, observed {len(pooled_features)}",
+    )
+
+    pooled_clr_minimum = fixed_clr(rmp_primary[pooled_features])
+    pooled_clr_multiplicative = multiplicative_clr(rmp_primary[pooled_features])
+    source_clr_minimum = fixed_clr(rmp[source_features]).loc[primary_ids]
+    source_clr_multiplicative = multiplicative_clr(rmp_primary[source_features])
 
     pairwise = pd.concat(
         [
-            _pairwise_results("QMP", qmp_primary[features], labels),
-            _pairwise_results("RMP", rmp_primary[features], labels),
-            _pairwise_results("CLR", clr_primary, labels),
+            _pairwise_results(
+                "qmp", "QMP", qmp_primary[pooled_features], labels,
+                "pooled_outcome_blind", True,
+            ),
+            _pairwise_results(
+                "row_closed", "Row-closed", rmp_primary[pooled_features], labels,
+                "pooled_outcome_blind", True,
+            ),
+            _pairwise_results(
+                "clr_minimum_positive", "CLR", pooled_clr_minimum, labels,
+                "pooled_outcome_blind", True, "minimum_positive",
+            ),
+            _pairwise_results(
+                "clr_multiplicative", "CLR", pooled_clr_multiplicative, labels,
+                "pooled_outcome_blind", True, "multiplicative_delta_1_over_p_squared",
+            ),
+            _pairwise_results(
+                "qmp", "QMP", qmp_primary[source_features], labels,
+                "source_aligned_group_union", False,
+            ),
+            _pairwise_results(
+                "row_closed", "Row-closed", rmp_primary[source_features], labels,
+                "source_aligned_group_union", False,
+            ),
+            _pairwise_results(
+                "clr_minimum_positive", "CLR", source_clr_minimum, labels,
+                "source_aligned_group_union", False, "minimum_positive",
+            ),
+            _pairwise_results(
+                "clr_multiplicative", "CLR", source_clr_multiplicative, labels,
+                "source_aligned_group_union", False,
+                "multiplicative_delta_1_over_p_squared",
+            ),
         ],
         ignore_index=True,
     )
     global_da = _global_results(qmp, rmp, metadata["diagnosis"], candidates)
 
-    pairwise_path = results_dir / "lcpm_crc_vs_ctl_qmp_rmp_clr.csv"
+    pairwise_path = results_dir / "lcpm_crc_vs_ctl_associations.csv"
     global_path = results_dir / "lcpm_global_prevalence_sensitivity.csv"
     summary_path = results_dir / "lcpm_association_summary.json"
     pairwise.to_csv(pairwise_path, index=False)
     global_da.to_csv(global_path, index=False)
-    counts = (
-        pairwise.groupby("representation")["significant_q_lt_0_05"]
-        .sum()
-        .astype(int)
-        .to_dict()
-    )
+    counts = {}
+    for specification, group in pairwise.groupby("filter_specification", sort=False):
+        counts[specification] = (
+            group.groupby("component")["significant_q_lt_0_05"]
+            .sum()
+            .astype(int)
+            .to_dict()
+        )
     write_json(
         {
             "contrast": "CRC vs CTL",
             "samples": int(len(primary_ids)),
             "crc": int((labels == "CRC").sum()),
             "ctl": int((labels == "CTL").sum()),
-            "tested_features": len(features),
+            "primary_filter": "pooled_outcome_blind",
+            "primary_tested_features": len(pooled_features),
+            "source_aligned_tested_features": len(source_features),
             "significant_calls": counts,
+            "covariate_adjustment": "none; participant-level confounders were unavailable",
         },
         summary_path,
     )
-    print(f"LCPM associations: 112 taxa; q<0.05 calls {counts}")
+    print(
+        "LCPM associations: "
+        f"{len(pooled_features)} pooled outcome-blind taxa and "
+        f"{len(source_features)} source-aligned taxa; q<0.05 calls {counts}"
+    )
     return {"pairwise": pairwise_path, "global": global_path, "summary": summary_path}
 
 

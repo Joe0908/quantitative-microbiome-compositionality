@@ -1,4 +1,4 @@
-"""Part 02 — construct paired LCPM QMP and derived RMP matrices."""
+"""Part 02 — construct LCPM QMP and QMP-derived row-closed matrices."""
 
 from __future__ import annotations
 
@@ -70,26 +70,31 @@ def run(data_dir: Path = DEFAULT_DATA_DIR) -> dict[str, Path]:
 
     require(qmp.shape == (589, 676), f"Unexpected LCPM QMP shape: {qmp.shape}")
     require(metadata["diagnosis"].value_counts().to_dict() == {"ADE": 337, "CTL": 205, "CRC": 47}, "Unexpected LCPM diagnosis counts")
-    require(np.allclose(rmp.sum(axis=1), 1.0), "LCPM RMP rows do not sum to one")
+    require(
+        np.allclose(rmp.sum(axis=1), 1.0),
+        "LCPM QMP-derived row-closed rows do not sum to one",
+    )
 
     paths = {
         "metadata": processed_dir / "metadata.csv.gz",
         "taxonomy": processed_dir / "taxonomy.csv.gz",
         "qmp": processed_dir / "qmp_cells_per_g.csv",
-        "rmp": processed_dir / "rmp_row_closed.csv",
+        "row_closed": processed_dir / "row_closed.csv",
         "qc": processed_dir / "qc.json",
     }
     metadata.to_csv(paths["metadata"], index=False)
     taxonomy.to_csv(paths["taxonomy"], index=False)
     qmp.to_csv(paths["qmp"], index=True)
-    rmp.to_csv(paths["rmp"], index=True)
+    rmp.to_csv(paths["row_closed"], index=True)
     write_json(
         {
             "samples": 589,
             "features": 676,
             "clean_candidates": 336,
             "diagnosis_counts": metadata["diagnosis"].value_counts().to_dict(),
-            "maximum_rmp_row_sum_error": float(np.abs(rmp.sum(axis=1) - 1).max()),
+            "maximum_row_closed_sum_error": float(
+                np.abs(rmp.sum(axis=1) - 1).max()
+            ),
         },
         paths["qc"],
     )

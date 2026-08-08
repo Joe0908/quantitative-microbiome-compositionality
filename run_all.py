@@ -43,7 +43,7 @@ def main() -> None:
     else:
         print("\nPART 01 — skipped by request", flush=True)
 
-    _part(2, "prepare Galazzo/LCPM")
+    _part(2, "prepare LCPM")
     prepare_lcpm(args.data_dir)
     _part(3, "prepare and audit MetaCardis")
     prepare_metacardis(args.data_dir)

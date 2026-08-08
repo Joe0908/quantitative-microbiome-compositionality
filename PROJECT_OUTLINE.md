@@ -1,355 +1,339 @@
-# Comprehensive project outline
+# Comprehensive project and training outline
 
-## 1. Project question and final scope
+## 1. Research question and evidential scope
 
-The project asks one focused methodological question:
+The project asks:
 
-> When the same stool microbiome profiles are represented as quantitative
-> abundance (QMP), row-closed relative abundance (RMP), or centered log-ratio
-> abundance (CLR), how much do disease prediction and taxon-level conclusions
-> change?
+> When the same published quantitative stool-microbiome profiles are analyzed
+> as QMP, QMP-derived row-closed abundance, or CLR abundance, how stable are
+> taxon-level inference and cross-validated disease discrimination?
 
-The scope is deliberately limited to two suitable published datasets:
+The central claim is intentionally limited: abundance representation and CLR
+zero handling can materially change feature-level findings, whereas QMP does
+not show a consistent prediction advantage in these two cohorts. This is not
+an equivalence or non-inferiority claim.
 
-1. **Galazzo/LCPM** supplies a true species-level cells/g benchmark for
-   colorectal cancer.
-2. **MetaCardis** supplies an independent cardiovascular cohort with a
-   microbial-load-corrected quantitative abundance index and richer metadata.
+The study does not claim new CRC or IHD biomarkers, causal microbial effects,
+same-disease external validation, or universal superiority of any
+representation.
 
-This is a data-replacement and robustness project, not a new sequencing
-pipeline. The published quantitative matrices are processed into analysis-ready
-datasets; synthetic data are not generated.
+## 2. Datasets and primary contrasts
 
-## 2. Prespecified analyses
+| Cohort | Contrast | Negative class | Positive class | N | Quantitative scale |
+|---|---|---:|---:|---:|---|
+| LCPM | CRC vs CTL | 205 CTL | 47 CRC | 252 | Species cells/g |
+| MetaCardis | IHD372 vs MMC372 | 369 MMC | 303 IHD | 672 | Load-corrected MGS index |
 
-### 2.1 Primary disease contrasts
+LCPM also contains 337 adenoma participants used only in the source-aligned
+three-group sensitivity analysis. MetaCardis contains overlapping published
+analysis memberships; the primary IHD372 and MMC372 groups are participant-ID
+disjoint.
 
-| Cohort | Contrast | Negative class | Positive class | N |
-|---|---|---:|---:|---:|
-| Galazzo/LCPM | CRC vs CTL | 205 CTL | 47 CRC | 252 |
-| MetaCardis | IHD372 vs MMC372 | 369 MMC | 303 IHD | 672 |
+The diseases and quantitative units differ. The two cohorts provide
+cross-disease methodological replication, not biological replication, and raw
+abundances or disease effects are never pooled.
 
-MetaCardis published labels overlap in several other designs. The IHD372 and
-MMC372 groups are participant-ID disjoint, so they are used as the primary
-contrast. Nested ACS, CIHD, and HF labels are not added as extra cases.
+## 3. Abundance representations
 
-### 2.2 Representations
+For quantitative matrix `X`, participant `i`, and taxon `j`:
 
-For a participant-by-taxon quantitative matrix \(X\):
+1. **QMP** is the published quantitative value. LCPM supplies cells/g;
+   MetaCardis supplies a load-corrected FPKM-derived index.
+2. **QMP-derived row-closed abundance** is
 
-1. **QMP:** the published quantitative value, with structural zeros retained.
-2. **RMP:** row closure,
    \[
    R_{ij}=\frac{X_{ij}}{\sum_k X_{ik}}.
    \]
-3. **CLR:** after feature selection, replace a zero for feature \(j\) with the
-   minimum positive training-fold value for that feature, take natural logs,
-   and subtract the participant's mean log abundance,
-   \[
-   \operatorname{clr}(R_{ij})=\log(R_{ij}^{*})-
-   \frac{1}{p}\sum_{k=1}^{p}\log(R_{ik}^{*}).
-   \]
 
-For held-out data, the replacement values learned from the training fold are
-reused unchanged.
+   It is a deterministic mathematical transformation of QMP, not an
+   independently measured native sequencing relative-abundance matrix. The
+   QMP and row-closed matrices share upstream measurement error.
+3. **Minimum-positive CLR** replaces a zero for taxon `j` with the minimum
+   positive training-fold row-closed value for that taxon, takes natural logs,
+   and subtracts the participant mean log abundance.
+4. **Multiplicative CLR sensitivity** first closes the selected features,
+   sets `delta = 1 / p²`, replaces every zero with `delta`, rescales non-zero
+   entries by `1 - m_i × delta`, and applies CLR. Here `p` is the number of
+   selected taxa and `m_i` is the number of zeros in participant `i`.
 
-## 3. Data-processing phases
+The minimum-positive rule is retained for continuity with the original
+analysis. Multiplicative replacement tests whether conclusions depend on that
+zero-handling choice.
 
-### Phase 01 — acquisition and provenance
+## 4. Acquisition, construction, and QC
 
-**Input:** two public Nature Medicine supplementary workbooks.
+### Part 01 — acquire immutable inputs
 
-**Actions:**
+- Download the two official supplementary workbooks through HTTPS.
+- Store them under `data/raw/`.
+- Compare each file with the fixed SHA-256 in `compositionality/config.py`.
+- Stop before analysis if a checksum differs.
 
-- Download through HTTPS.
-- Cache under `data/raw/`.
-- Verify the fixed SHA-256 before analysis.
-- Stop on any checksum mismatch.
+### Part 02 — construct LCPM
 
-**Output:** verified immutable input workbooks.
+- Read participant metadata, the clean-species list, and species-level QMP.
+- Preserve source participant and feature order.
+- Verify 589 participants × 676 source features.
+- Verify diagnosis counts: 205 CTL, 337 ADE, and 47 CRC.
+- Retain 336 taxonomically clean candidate features.
+- Derive row-closed abundance from the complete QMP row.
+- Record total load, detected-feature count, and row-sum QC.
 
-### Phase 02 — Galazzo/LCPM construction
+### Part 03 — construct and audit MetaCardis
 
-**Source sheets:** participant metadata, clean-species list, and species QMP
-cells/g matrix.
+- Stream the required worksheet XML to avoid loading the workbook's large
+  formatting model.
+- Audit 1,882 published membership rows representing 1,087 unique IDs.
+- Confirm duplicate rows for an ID are identical apart from membership label.
+- Create explicit HC, MMC, UMMC, IHD, ACS, CIHD, and HF membership indicators.
+- Retain one quantitative profile per ID.
+- Verify 994 complete profiles × 729 source MGS features.
+- Map each MGS column to taxonomy and retain 416 clean bacterial candidates.
+- Encode age, BMI, sex, nationality, diabetes, and four broad medication
+  categories.
+- Verify 303 IHD and 369 MMC profiles with no cross-group ID overlap.
 
-**Actions:**
+## 5. Feature-level association analyses
 
-- Standardize participant and diagnosis fields.
-- Preserve the published participant and feature order.
-- Validate 589 participants and 676 source taxa.
-- Retain the prespecified 336 taxonomically clean candidate taxa.
-- Derive RMP by closing each full QMP row.
-- Add sample-level load and detected-feature audit fields.
-- Confirm diagnosis counts: 205 CTL, 337 ADE, and 47 CRC.
+### 5.1 LCPM primary analysis
 
-**Outputs:** metadata, taxonomy, QMP cells/g, RMP, and QC JSON.
+Question: among CRC and CTL participants, do taxa differ under each abundance
+representation?
 
-### Phase 03 — MetaCardis construction and overlap audit
+1. Restrict to the 252 primary participants.
+2. Calculate detection prevalence across all 252 participants without using
+   CRC/CTL labels.
+3. Retain taxa detected at row-closed abundance ≥ 1×10⁻⁶ in at least 5% of the
+   pooled participants. This yields 93 taxa.
+4. Analyze QMP, row-closed abundance, minimum-positive CLR, and multiplicative
+   CLR separately.
+5. For each taxon, run a two-sided Mann–Whitney U test.
+6. Report rank-biserial effect size oriented as CRC minus CTL.
+7. Apply Benjamini–Hochberg correction separately within each representation
+   and zero-replacement specification.
 
-**Source sheets:** phenotype/medication tables, quantitative MGS matrix, and
-taxonomy.
+These tests are unadjusted. Participant-level BMI, stool moisture, and
+calprotectin needed for confounder adjustment are unavailable in the public
+supplement.
 
-**Actions:**
+### 5.2 LCPM source-aligned sensitivity
 
-- Stream the required worksheet XML to avoid loading the workbook's large style
-  model into memory.
-- Audit 1,882 published label rows representing 1,087 unique participant IDs.
-- Verify that duplicated rows for an ID differ only in the published `Status`
-  membership.
-- Create explicit Boolean membership fields for HC275, MMC372, UMMC, IHD372,
-  ACS, CIHD, and HF.
-- Keep one quantitative profile per ID.
-- Validate 994 complete QMP/RMP profiles and 729 source MGS features.
-- Map MGS columns one-to-one to taxonomy and retain 416 clean bacterial
-  candidates.
-- Convert sex, diabetes, and four broad drug categories to numeric fields.
-- Confirm 303 IHD and 369 MMC profiles with no cross-group ID overlap.
+The published/source-aligned rule retains a taxon if it reaches 5% prevalence
+in any of CTL, ADE, or CRC, yielding 112 taxa. Because diagnosis groups enter
+feature selection, this result is retained as a sensitivity analysis rather
+than the primary inferential result. Three-group 1%, 5%, and 10% analyses are
+also retained for methodological context.
 
-**Outputs:** audited metadata, taxonomy, QMP index, RMP, and QC JSON.
+### 5.3 MetaCardis association models
 
-## 4. Model-training specification
+Question: are IHD/MMC associations stable across prevalence, positive QMP,
+positive row-closed abundance, and two CLR zero treatments?
 
-### 4.1 Global fixed settings
+1. Calculate pooled prevalence across all 672 participants without using the
+   IHD/MMC label.
+2. Retain 404 taxa present in at least 5% of participants.
+3. For each taxon fit five components:
+
+   - presence/absence logistic regression;
+   - natural-log positive QMP OLS;
+   - natural-log positive row-closed OLS;
+   - minimum-positive CLR OLS across all participants;
+   - multiplicative CLR OLS across all participants.
+
+4. Positive-abundance models use only participants in whom the taxon is
+   present.
+5. OLS models use HC3 robust standard errors and finite-sample t inference.
+6. Run three covariate specifications:
+
+   - unadjusted disease indicator;
+   - core: age, BMI, BMI-missing indicator, sex, nationality, and diabetes;
+   - core plus antidiabetic, antihypertensive, lipid-lowering, and proton-pump
+     inhibitor categories.
+
+7. Remove constant or linearly dependent nuisance columns inside a sparse
+   positive subset while retaining the disease term.
+8. Apply BH correction separately within every component and covariate
+   specification.
+
+The medication-expanded specification is a sensitivity analysis under an
+alternative covariate set. It is not a causal estimate of direct drug effects;
+medication can be a confounder, mediator, or proxy for disease severity.
+
+## 6. Prediction design
+
+### 6.1 Fixed global settings
 
 | Setting | Value |
 |---|---|
 | Splitter | Repeated stratified cross-validation |
 | Folds × repeats | 5 × 10 |
 | Random seed | 531 |
-| Primary prevalence | 5% in either training class |
-| LCPM detection threshold | RMP ≥ 1×10⁻⁶ |
-| MetaCardis detection threshold | QMP > 0 |
-| Primary classifier | `HistGradientBoostingClassifier` |
+| Candidate taxa | 336 LCPM; 416 MetaCardis |
+| Training filter | ≥5% in either training class |
+| LCPM detection | Row-closed ≥1×10⁻⁶ |
+| MetaCardis detection | QMP >0 |
+| Primary estimator | `HistGradientBoostingClassifier` |
 | Learning rate | 0.05 |
 | Iterations | 150 |
 | Maximum leaf nodes | 15 |
 | Minimum samples per leaf | 10 |
 | L2 regularization | 1.0 |
-| Class handling | Balanced training weights |
+| Class handling | Balanced training sample weights |
 | Early stopping | Disabled |
+| Hyperparameter tuning | None |
 
-There is no hyperparameter search. Fixing the model before comparison prevents
-representation-specific tuning from becoming an alternative explanation for a
-QMP/RMP/CLR difference.
+The class-aware feature filter is a supervised prediction step and is valid
+because it is fitted exclusively inside each training fold. It must not be
+confused with the label-blind filter used for taxon-level hypothesis testing.
 
-### 4.2 Exact content of every training fold
+### 6.2 Exact operations within every fold
 
-The following steps are repeated 50 times per cohort.
+#### Step 1 — shared split
 
-#### Training step 1 — define the fold
+- Preserve published quantitative-matrix row order.
+- Obtain train/test positions from the shared repeated-stratified splitter.
+- Use the same positions for QMP, row-closed, both CLR variants, clinical, and
+  combined models.
+- Record participant and class counts.
 
-- Read the train/test positions from the shared repeated-stratified splitter.
-- Preserve the published quantitative-matrix row order.
-- Use exactly the same positions for every representation and optional
-  baseline.
-- Record train/test counts and class counts.
+#### Step 2 — training-fold taxon selection
 
-#### Training step 2 — fit the feature filter
+- Start from the clean candidate set.
+- Calculate detection prevalence in each class using training participants
+  only.
+- Retain a taxon if it reaches 5% in either training class.
+- Record every selected taxon and selection frequency.
 
-- Start from 336 LCPM or 416 MetaCardis clean candidates.
-- Using **training participants only**, calculate detection prevalence within
-  each binary class.
-- Retain a taxon if it reaches 5% prevalence in either class.
-- Record the number and identity of selected taxa.
+#### Step 3 — build abundance matrices
 
-This produces a varying feature set by fold. At the reference run, the mean
-number selected is 116.58 for LCPM and 409.56 for MetaCardis.
+- Subset QMP and QMP-derived row-closed abundance to the same selected taxa.
+- Keep zeros in QMP and row-closed models.
+- Do not use test outcomes or test prevalence.
 
-#### Training step 3 — construct fold matrices
+#### Step 4 — minimum-positive CLR
 
-- Subset QMP and the already row-closed RMP to the selected taxa.
-- RMP closure itself is a deterministic within-participant calculation and uses
-  no outcome or other participant.
-- Keep zeros in QMP and RMP; do not add a prediction pseudocount.
+- For every selected taxon, learn its minimum positive row-closed value from
+  the training fold.
+- Replace training zeros and transform to CLR.
+- Reuse the exact training replacement vector for held-out zeros.
+- Record minimum and maximum fold replacement values.
 
-#### Training step 4 — fit the CLR replacement reference
+#### Step 5 — multiplicative CLR sensitivity
 
-- For each selected taxon, find its minimum positive RMP in the training fold.
-- Store that vector as the fold-specific replacement reference.
-- Replace training zeros, log, and center within participant.
-- Apply the **same stored vector** to held-out zeros before held-out log-centering.
-- Record minimum and maximum replacement values for leakage auditing.
+- Use the same selected taxa.
+- Apply the fixed `delta = 1 / p²` multiplicative replacement independently to
+  each composition; no statistic is learned from held-out participants.
+- Record `delta` for every fold.
 
-#### Training step 5 — calculate class weights
+#### Step 6 — fit microbiome models
 
-- For a training fold with \(n\) participants and \(n_c\) participants in class
-  \(c\), assign weight \(n/(2n_c)\).
-- Fit all three microbiome models with the same training labels and weights.
+- Fit separate fixed HGB models to QMP, row-closed, minimum-positive CLR, and
+  multiplicative CLR.
+- Use identical training labels and balanced weights.
+- Save held-out positive-class probabilities.
 
-#### Training step 6 — fit the QMP model
+#### Step 7 — construct MetaCardis clinical design
 
-- Input: selected raw quantitative features.
-- Estimator: fixed histogram-gradient boosting model.
-- Output: held-out probability of CRC for LCPM or IHD for MetaCardis.
+The clinical design contains age, BMI, BMI missingness, sex, France-vs-Denmark
+nationality, diabetes, and four medication categories. For each fold:
 
-#### Training step 7 — fit the RMP model
+- learn the BMI median from training participants only;
+- impute training and held-out BMI with that value;
+- retain the BMI-missing indicator.
 
-- Input: the same selected taxa expressed as row-closed relative abundance.
-- Estimator and weights: identical to the QMP model.
-- Output: held-out positive-class probabilities.
+#### Step 8 — fit estimator-matched clinical comparisons
 
-#### Training step 8 — fit the CLR model
+- Fit clinical-only HGB using the same HGB settings and folds as the combined
+  models.
+- Fit QMP+clinical, row-closed+clinical, and minimum-positive CLR+clinical HGB.
+- Retain a balanced logistic clinical-only model as contextual sensitivity,
+  not as the estimator-matched incremental baseline.
 
-- Input: fold-local CLR matrix for the same selected taxa.
-- Estimator and weights: identical to QMP and RMP.
-- Output: held-out positive-class probabilities.
+#### Step 9 — fold and repeat metrics
 
-#### Training step 9 — optional MetaCardis clinical baseline
-
-The clinical design contains:
-
-- age;
-- BMI and a BMI-missing indicator;
-- male indicator;
-- France versus Denmark nationality indicator;
-- diabetes;
-- antidiabetic medication;
-- antihypertensive medication;
-- lipid-lowering medication; and
-- proton-pump inhibitor use.
-
-Eight BMI values are missing. Within every fold, the training-fold median is
-learned and applied to both training and held-out BMI while the missingness
-indicator is retained. The full primary-cohort audit median is 27.568 kg/m².
-A balanced L2 logistic regression produces the held-out clinical probability.
-
-#### Training step 10 — optional combined models
-
-- Append the ten clinical fields to QMP, RMP, or CLR.
-- Fit three additional fixed histogram-gradient boosting models.
-- These models are secondary context checks; they are not used to decide
-  whether QMP solves compositionality.
-
-#### Training step 11 — score the held-out fold
-
-For every fitted model, save:
+For each held-out fold, save ROC AUC, average precision, balanced accuracy at
+0.5, and Brier score. For each repeat, concatenate all five held-out folds so
+every participant has exactly one out-of-fold prediction, then calculate:
 
 - ROC AUC;
 - average precision;
-- balanced accuracy at probability 0.5; and
+- balanced accuracy;
+- sensitivity and specificity at 0.5;
 - Brier score.
 
 The 0.5 threshold is not optimized.
 
-#### Training step 12 — assemble repeat-level out-of-fold predictions
+#### Step 10 — descriptive repeated-CV summary
 
-- Concatenate the five held-out folds so every participant has one prediction
-  for that repeat.
-- Calculate ROC AUC, average precision, balanced accuracy, sensitivity,
-  specificity, and Brier score on the full out-of-fold vector.
-- Repeat for all ten repeats.
+- Report the mean, sample SD, literal minimum, and literal maximum across the
+  ten repeat-level metrics.
+- For paired models, report mean/SD/min/max of the ten within-repeat
+  differences.
+- Do not calculate a t-based interval, paired Wilcoxon P value, or BH q value.
 
-#### Training step 13 — summarize and compare models
+Repeated-CV values are correlated because participants are reused. The
+repeat-level range is descriptive resampling variability, not a confidence
+interval. These results do not establish equivalence or non-inferiority.
 
-- Report mean, sample SD, and a t-based exploratory 95% interval across the ten
-  repeat metrics.
-- Compare representation pairs using a paired two-sided Wilcoxon test on the
-  ten repeat values.
-- Apply BH correction within the comparison family.
+## 7. Cross-cohort synthesis
 
-These intervals and tests are descriptive because repeated-CV estimates are
-correlated. They are not substitutes for external validation.
+Allowed operations:
 
-## 5. Differential-association analyses
+- compare representations within each cohort;
+- calculate within-cohort effect correlations, direction agreement, and call
+  overlap;
+- normalize strict species names and retain exactly one feature per species in
+  each cohort;
+- standardize effects within cohort and representation;
+- compare representation-sensitivity gaps descriptively.
 
-### 5.1 Galazzo/LCPM
+Prohibited operations:
 
-- Define the 5% analysis feature set across CTL, ADE, and CRC, then test the
-  prespecified CRC-vs-CTL contrast.
-- Use two-sided Mann–Whitney U tests for QMP, RMP, and CLR.
-- Report rank-biserial effect size oriented as CRC minus CTL.
-- Apply BH correction separately to each representation.
-- Repeat global CTL/ADE/CRC sensitivity analyses at 1%, 5%, and 10% prevalence.
+- pooling CRC and IHD participants;
+- pooling LCPM cells/g with the MetaCardis index;
+- meta-analyzing different disease estimands;
+- treating MetaCardis as biological validation of CRC;
+- assigning independent-taxon P values to cross-species correlations.
 
-Primary fixed set: 112 taxa. Expected calls: 8 QMP, 8 RMP, and 1 CLR.
+After the revised pooled filters, exact one-to-one harmonization yields 49
+shared species. Correlations across these taxa are descriptive because taxa
+are not independent observations.
 
-### 5.2 MetaCardis
+## 8. Outputs and audit trail
 
-Use 410 fixed 5%-prevalence features and separate presence from positive
-abundance:
-
-1. **Prevalence component:** logistic regression of presence on IHD status.
-2. **QMP non-zero component:** OLS of natural-log positive QMP with HC3 robust
-   standard errors and finite-sample t tests.
-3. **RMP non-zero component:** the same model on natural-log positive RMP.
-4. **CLR component:** OLS on CLR across all participants with HC3 robust
-   standard errors and finite-sample t tests.
-
-Specifications are:
-
-- unadjusted disease indicator;
-- core adjusted: age, BMI, BMI missingness, sex, nationality, diabetes; and
-- core plus the four medication categories.
-
-Constant or collinear nuisance indicators are removed inside a taxon's positive
-subset without dropping the disease term. BH correction is applied separately
-within every component and adjustment specification.
-
-## 6. Cross-cohort synthesis
-
-### What is allowed
-
-- Compare QMP/RMP/CLR performance **within** each cohort.
-- Compare representation-specific effect correlation and direction agreement
-  within each cohort.
-- Normalize strict two-token species names and require exact matches.
-- Apply the completed project's conservative MetaCardis cross-cohort flag:
-  classified bacterial labels containing neither `sp.` nor the substring
-  `bacterium`; then apply the strict two-token binomial rule.
-- Require exactly one feature per species in each cohort.
-- Standardize effects within cohort and representation across the full tested
-  feature set.
-- Compare QMP-minus-RMP and QMP-minus-CLR standardized gaps for the 51 shared
-  species.
-
-### What is prohibited
-
-- Pooling CRC and IHD participants.
-- Pooling LCPM cells/g with the MetaCardis abundance index.
-- Meta-analysis of disease effects with different estimands and adjustments.
-- Interpreting shared-species gap correlation as shared disease biology.
-- Arbitrarily choosing or summing one of several MetaCardis MGS features with
-  the same species name; duplicated labels are excluded.
-
-## 7. Output and audit plan
-
-| Output group | Specific content |
+| Output group | Content |
 |---|---|
-| Processed LCPM | metadata, taxonomy, QMP, RMP, QC checks |
-| Processed MetaCardis | overlap-aware metadata, taxonomy, QMP, RMP, QC checks |
-| Associations | full effects, SEs where applicable, p values, BH q values, fit status |
-| CV repeats | one row per cohort/model/repeat with full OOF metrics |
-| CV folds | held-out metrics for every fold and model |
-| Fold audit | sample counts, selected-feature count, CLR replacement range |
-| Selection frequency | number and fraction of 50 folds selecting each candidate |
-| Synthesis | headline JSON, CV comparison, DA call counts, effect stability |
-| Shared species | one-to-one species effects, z scores, and representation gaps |
+| Processed data | Metadata, taxonomy, QMP, row-closed abundance, QC JSON |
+| Associations | Effects, SEs where applicable, P values, BH q values, fit status |
+| CV repeats | One row per cohort/model/repeat with complete OOF metrics |
+| CV folds | Held-out metrics for every model and fold |
+| Fold audit | Counts, selected taxa, CLR replacement range/delta, BMI median |
+| Selection frequency | Number and fraction of 50 folds selecting each candidate |
+| Sensitivity | LCPM filter comparison and CLR zero-replacement comparison |
+| Synthesis | Descriptive CV differences, call counts, effect stability, 49 species |
 
-## 8. Acceptance criteria
+## 9. Acceptance criteria
 
-The run is accepted when all of the following hold:
+A run is accepted only when:
 
-- LCPM is 589 × 676 before primary subsetting, with 336 clean candidates.
-- MetaCardis is 994 × 729 before primary subsetting, with 416 clean candidates.
-- Primary groups are 47/205 and 303/369 and contain no MetaCardis cross-group ID
-  overlap.
-- Every RMP row sums to one within numerical tolerance.
-- Training-fold filtering and CLR replacement are audited for all 100 cohort
-  folds.
-- Primary AUCs match `expected_results.json` within the documented software
-  tolerance.
-- Differential call counts match the expected checkpoints.
-- Exact harmonization yields 51 shared one-to-one species.
-- No output pools incompatible disease effects or quantitative scales.
+- source dimensions and diagnosis/membership counts match the fixed checks;
+- all row-closed profiles sum to one within numerical tolerance;
+- no association filter uses disease labels in the primary analysis;
+- all prediction preprocessing is learned within the training fold;
+- all held-out probabilities are finite and complete;
+- repeated-CV exports contain no inferential CI, P, or q fields;
+- association counts, AUC checkpoints, effect correlations, and shared-species
+  count match `expected_results.json`;
+- unit tests pass; and
+- no output pools incompatible diseases, abundance scales, or estimands.
 
-## 9. Final interpretation
+## 10. Final interpretation boundary
 
-The replacement data solve the original design limitation: the same samples can
-now be examined as quantitative, relative, and log-ratio profiles. The results
-do not support a universal prediction advantage for QMP, but they show that
-taxon discovery and uncertainty can depend materially on representation.
-MetaCardis also shows that clinical and medication structure can matter more
-than the small QMP-versus-RMP AUC difference. Quantitative measurement is
-therefore valuable, but it does not remove the need for compositional
-sensitivity analysis or careful confounder data.
+The revised evidence supports a narrower and more defensible conclusion than
+the first analysis. LCPM feature discoveries were highly sensitive to whether
+the tested taxa were selected with or without diagnosis labels. CLR results
+and prediction also changed with zero replacement. Across both cohorts, QMP
+did not consistently improve disease discrimination, and MetaCardis clinical
+variables dominated microbiome-only prediction. Quantitative measurement is
+valuable, but it does not by itself eliminate compositional sensitivity,
+outcome-dependent filtering bias, or clinical confounding.
